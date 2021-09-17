@@ -2,9 +2,11 @@ pragma solidity 0.8.7;
 
 import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-//import "@openzeppelin/contracts/security/Pausable.sol";
- /*, Pausable */
-contract AutoCoinFlip is VRFConsumerBase, Ownable {
+import "@openzeppelin/contracts/security/Pausable.sol";
+ 
+contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
+
+    uint256 public constant MAX_TREASURY_FEE = 1000; // 10%
 
     enum Position {
         Head,
@@ -28,6 +30,9 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
         uint256 amount;
         bool claimed; // default false
     }
+
+    address public adminAddress; // address of the admin
+    address public operatorAddress; // address of the operator
 
     uint256 public minBetAmount;
     uint256 public treasuryFee;
@@ -57,18 +62,52 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
     event StartRound(uint256 indexed epoch);
     event EndRound(uint256 indexed epoch);
     event Claim(uint256 indexed epoch, address indexed user, uint256 amount);
+    event Pause(uint256 indexed epoch);
+    event UnPause(uint256 indexed epoch);
+    event TreasuryClaim(uint256 amount);
+    event NewMinBetAmount(uint256 indexed epoch, uint256 minBetAmount);
+    event NewOperatorAddress(address operatorAddress);
+    event NewTreasuryFee(uint256 indexed epoch, uint256 treasuryFee);
+    event NewAdminAddress(address adminAddress);
 
     constructor(
         address vrfCoordinator,
         address link,
         bytes32 keyHash,
-        uint256 fee
+        uint256 fee,
+        address _adminAddress,
+        address _operatorAddress,
+        uint256 _minBet,
+        uint256 _treasuryFee
     ) public VRFConsumerBase(vrfCoordinator, link) {
+        require(_treasuryFee <= MAX_TREASURY_FEE, "Treasury fee too high");
+
         s_keyHash = keyHash;
         s_fee = fee;
+
+        adminAddress = _adminAddress;
+        operatorAddress = _operatorAddress;
+
+        minBetAmount = _minBet;
+        treasuryFee = _treasuryFee;
     }
 
-    function betHead(uint256 epoch) external payable {
+    modifier onlyAdmin() {
+        require(msg.sender == adminAddress, "Not admin");
+        _;
+    }
+
+    modifier onlyOperator() {
+        require(msg.sender == operatorAddress, "Not operator");
+        _;
+    }
+
+    modifier onlyAdminOrOperator() {
+        require(msg.sender == adminAddress || msg.sender == operatorAddress, "Not operator/admin");
+        _;
+    }
+
+    function betHead(uint256 epoch) external payable whenNotPaused {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
@@ -90,7 +129,7 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
         emit BetHead(msg.sender, epoch, amount);
     }
 
-    function betTail(uint256 epoch) external payable {
+    function betTail(uint256 epoch) external payable whenNotPaused {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
@@ -110,6 +149,18 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
         userRounds[msg.sender].push(epoch);
 
         emit BetTail(msg.sender, epoch, amount);
+    }
+
+    function pause() external whenNotPaused {
+        _pause();
+
+        emit Pause(currentEpoch);
+    }
+
+    function unpause() external whenPaused {
+        _unpause();
+
+        emit UnPause(currentEpoch);
     }
 
     function claim(uint256[] calldata epochs) external {
@@ -147,6 +198,47 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
         Round memory round = rounds[epoch];
 
         return (round.isRoundResolved && round.result == betInfo.position && !betInfo.claimed && betInfo.amount != 0);
+    }
+
+    function claimTreasury() external onlyAdmin {
+        uint256 currentTreasuryAmount = treasuryAmount;
+        treasuryAmount = 0;
+
+        payable(adminAddress).transfer(currentTreasuryAmount);
+
+        emit TreasuryClaim(currentTreasuryAmount);
+    }
+
+    function setMinBetAmount(uint256 _minBetAmount) external onlyAdmin whenPaused {
+        require(_minBetAmount != 0, "Must be superior to 0");
+
+        minBetAmount = _minBetAmount;
+
+        emit NewMinBetAmount(currentEpoch, minBetAmount);
+    }
+
+    function setTreasuryFee(uint256 _treasuryFee) external whenPaused onlyAdmin {
+        require(_treasuryFee <= MAX_TREASURY_FEE, "Treasury fee too high");
+
+        treasuryFee = _treasuryFee;
+
+        emit NewTreasuryFee(currentEpoch, treasuryFee);
+    }
+
+    function setOperator(address _operatorAddress) external onlyAdmin {
+        require(_operatorAddress != address(0), "Cannot be zero address");
+
+        operatorAddress = _operatorAddress;
+
+        emit NewOperatorAddress(operatorAddress);
+    }
+
+    function setAdmin(address _adminAddress) external onlyAdmin {
+        require(_adminAddress != address(0), "Cannot be zero address");
+
+        adminAddress = _adminAddress;
+
+        emit NewAdminAddress(adminAddress);
     }
 
     /**
