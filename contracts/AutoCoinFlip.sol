@@ -1,6 +1,6 @@
-pragma solidity 0.6.6;
+pragma solidity 0.8.7;
 
-import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 //import "@openzeppelin/contracts/security/Pausable.sol";
  /*, Pausable */
@@ -223,9 +223,10 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable {
         _calculateRewards(currentEpoch);
         // Close the current epoch
         _endRound(currentEpoch);
-        // Open the next epoch
-        currentEpoch = currentEpoch + 1;
-        _startRound(currentEpoch);
+        uint256 next_epoch = currentEpoch + 1;
+        // Open the next epoch        
+        _startRound(next_epoch);
+        currentEpoch = next_epoch;
     }
 
 }

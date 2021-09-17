@@ -1,6 +1,6 @@
-pragma solidity 0.6.6;
+pragma solidity 0.8.7;
 
-import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract CoinFlip is VRFConsumerBase, Ownable {
