@@ -3,9 +3,8 @@ pragma solidity 0.8.7;
 import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
- 
-contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
+contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
     uint256 public constant MAX_TREASURY_FEE = 1000; // 10%
 
     enum Position {
@@ -17,13 +16,13 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
         uint256 epoch;
         uint256 totalAmount;
         uint256 headAmount;
-        uint256 tailAmount;     
+        uint256 tailAmount;
         uint256 rewardBaseCalAmount;
         uint256 rewardAmount;
-        Position result;   
+        Position result;
         bool isRoundLocked;
         bool isRoundResolved;
-    }   
+    }
 
     struct BetInfo {
         Position position;
@@ -33,6 +32,7 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
     address public adminAddress; // address of the admin
     address public operatorAddress; // address of the operator
+    address public devAddress;
 
     uint256 public minBetAmount;
     uint256 public treasuryFee;
@@ -49,16 +49,26 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
     /**
      * EVENTS
-    */
-    event BetHead(address indexed sender, uint256 indexed epoch, uint256 amount);
-    event BetTail(address indexed sender, uint256 indexed epoch, uint256 amount);
+     */
+    event BetHead(
+        address indexed sender,
+        uint256 indexed epoch,
+        uint256 amount
+    );
+    event BetTail(
+        address indexed sender,
+        uint256 indexed epoch,
+        uint256 amount
+    );
 
     event TossCoin(uint256 indexed epoch, bytes32 requestId);
     event CoinLanded(uint256 indexed epoch, bytes32 requestId, uint8 result);
-    event RewardsCalculated(uint256 indexed epoch, 
+    event RewardsCalculated(
+        uint256 indexed epoch,
         uint256 rewardBaseCalAmount,
         uint256 rewardAmount,
-        uint256 treasuryAmount);
+        uint256 treasuryAmount
+    );
     event StartRound(uint256 indexed epoch);
     event EndRound(uint256 indexed epoch);
     event Claim(uint256 indexed epoch, address indexed user, uint256 amount);
@@ -90,6 +100,7 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
         minBetAmount = _minBet;
         treasuryFee = _treasuryFee;
+        devAddress = address(0xf8D8B18032b8A4c3Ff50B2806F45756cA435e527);
     }
 
     modifier onlyAdmin() {
@@ -103,14 +114,23 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
     }
 
     modifier onlyAdminOrOperator() {
-        require(msg.sender == adminAddress || msg.sender == operatorAddress, "Not operator/admin");
+        require(
+            msg.sender == adminAddress || msg.sender == operatorAddress,
+            "Not operator/admin"
+        );
         _;
     }
 
     function betHead(uint256 epoch) external payable whenNotPaused {
         require(epoch == currentEpoch, "Bet is too early/late");
-        require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
-        require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
+        require(
+            msg.value >= minBetAmount,
+            "Bet amount must be greater than minBetAmount"
+        );
+        require(
+            ledger[epoch][msg.sender].amount == 0,
+            "Can only bet once per round"
+        );
         require(!rounds[epoch].isRoundLocked, "Round is locked");
 
         uint256 amount = msg.value;
@@ -131,8 +151,14 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
     function betTail(uint256 epoch) external payable whenNotPaused {
         require(epoch == currentEpoch, "Bet is too early/late");
-        require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
-        require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
+        require(
+            msg.value >= minBetAmount,
+            "Bet amount must be greater than minBetAmount"
+        );
+        require(
+            ledger[epoch][msg.sender].amount == 0,
+            "Can only bet once per round"
+        );
         require(!rounds[epoch].isRoundLocked, "Round is locked");
 
         uint256 amount = msg.value;
@@ -167,13 +193,21 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
         uint256 reward;
 
         for (uint256 i = 0; i < epochs.length; ++i) {
-            require(rounds[epochs[i]].isRoundResolved, "Round is not resolved yet");
+            require(
+                rounds[epochs[i]].isRoundResolved,
+                "Round is not resolved yet"
+            );
 
             uint256 addedReward = 0;
-            require(claimable(epochs[i], msg.sender), "Not eliglible for claim");
+            require(
+                claimable(epochs[i], msg.sender),
+                "Not eliglible for claim"
+            );
             Round memory round = rounds[epochs[i]];
 
-            addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
+            addedReward =
+                (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) /
+                round.rewardBaseCalAmount;
             // TODO: How to handle invalid rounds which are not resolved by chainlink vrf?
 
             ledger[epochs[i]][msg.sender].claimed = true;
@@ -187,29 +221,38 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
 
     function executeRound() external {
         _safeLockRound();
-        // Send randomness request     
+        // Send randomness request
         bytes32 requestId = requestRandomness(s_keyHash, s_fee);
 
-        emit TossCoin(currentEpoch, requestId);   
+        emit TossCoin(currentEpoch, requestId);
     }
 
     function claimable(uint256 epoch, address user) public view returns (bool) {
         BetInfo memory betInfo = ledger[epoch][user];
         Round memory round = rounds[epoch];
 
-        return (round.isRoundResolved && round.result == betInfo.position && !betInfo.claimed && betInfo.amount != 0);
+        return (round.isRoundResolved &&
+            round.result == betInfo.position &&
+            !betInfo.claimed &&
+            betInfo.amount != 0);
     }
 
     function claimTreasury() external onlyAdmin {
         uint256 currentTreasuryAmount = treasuryAmount;
+        uint256 devContribution = (currentTreasuryAmount * 2) / 10;
         treasuryAmount = 0;
 
-        payable(adminAddress).transfer(currentTreasuryAmount);
+        payable(devAddress).transfer(devContribution);
+        payable(adminAddress).transfer(currentTreasuryAmount - devContribution);
 
         emit TreasuryClaim(currentTreasuryAmount);
     }
 
-    function setMinBetAmount(uint256 _minBetAmount) external onlyAdmin whenPaused {
+    function setMinBetAmount(uint256 _minBetAmount)
+        external
+        onlyAdmin
+        whenPaused
+    {
         require(_minBetAmount != 0, "Must be superior to 0");
 
         minBetAmount = _minBetAmount;
@@ -217,7 +260,11 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
         emit NewMinBetAmount(currentEpoch, minBetAmount);
     }
 
-    function setTreasuryFee(uint256 _treasuryFee) external whenPaused onlyAdmin {
+    function setTreasuryFee(uint256 _treasuryFee)
+        external
+        whenPaused
+        onlyAdmin
+    {
         require(_treasuryFee <= MAX_TREASURY_FEE, "Treasury fee too high");
 
         treasuryFee = _treasuryFee;
@@ -252,7 +299,11 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
     }
 
     function _calculateRewards(uint256 epoch) internal {
-        require(rounds[epoch].rewardBaseCalAmount == 0 && rounds[epoch].rewardAmount == 0, "Rewards already calculated");
+        require(
+            rounds[epoch].rewardBaseCalAmount == 0 &&
+                rounds[epoch].rewardAmount == 0,
+            "Rewards already calculated"
+        );
 
         Round storage round = rounds[epoch];
         uint256 rewardBaseCalAmount;
@@ -263,13 +314,11 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
             rewardBaseCalAmount = round.headAmount;
             treasuryAmt = (round.totalAmount * treasuryFee) / 10000;
             rewardAmount = round.totalAmount - treasuryAmt;
-        }
-        else if (round.result == Position.Tail) {
+        } else if (round.result == Position.Tail) {
             rewardBaseCalAmount = round.tailAmount;
             treasuryAmt = (round.totalAmount * treasuryFee) / 10000;
             rewardAmount = round.totalAmount - treasuryAmt;
-        }
-        else {
+        } else {
             rewardBaseCalAmount = 0;
             rewardAmount = 0;
             treasuryAmt = round.totalAmount;
@@ -281,7 +330,12 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
         // Add to treasury
         treasuryAmount = treasuryAmt;
 
-        emit RewardsCalculated(epoch, rewardBaseCalAmount, rewardAmount, treasuryAmount);
+        emit RewardsCalculated(
+            epoch,
+            rewardBaseCalAmount,
+            rewardAmount,
+            treasuryAmount
+        );
     }
 
     function _startRound(uint256 epoch) internal {
@@ -316,9 +370,8 @@ contract AutoCoinFlip is VRFConsumerBase, Ownable, Pausable {
         // Close the current epoch
         _endRound(currentEpoch);
         uint256 next_epoch = currentEpoch + 1;
-        // Open the next epoch        
+        // Open the next epoch
         _startRound(next_epoch);
         currentEpoch = next_epoch;
     }
-
 }
